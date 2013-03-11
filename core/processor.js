@@ -123,7 +123,9 @@ Processor.prototype.enqueue = function(message) {
 var statPollingInterval = null;
 Processor.prototype.setupStatPolling = function() {
 	if (statPollingInterval !== null) return;
+	var options = this.options;
 	var that = this;
+
 	statPollingInterval = setInterval(function() {
 		// clear the threads' stats
 		for (var key in that.stats) {
@@ -141,6 +143,35 @@ Processor.prototype.setupStatPolling = function() {
 	}, options.statPollingInterval);
 };
 
+var pingIntervalHandlers = { };
+Processor.prototype.setupPinging = function(thread, threadId) {
+	var options = this.options;
+
+	// set up pinging
+	pingIntervalHandlers[threadId] = setInterval(function() {
+		if (thread.connected === true) {
+			thread.send(JSON.stringify({ type: 'ping' }));
+		}
+	}, options.pingInterval);
+};
+
+
+Proc.prototype.setupThreadRespawn = function(thread, threadId) {
+	thread.on('exit', function (code, signal) {
+
+		console.log('Processor> Child process terminated due to receipt of signal '+ signal + ', respawning...');
+
+		// clean up first
+		delete pingIntervalHandlers[threadId];
+
+		// respawn thread 
+		processor.threads.push(processor.startThread());
+
+		// flush the queue if requests have piled up
+		processor.flush();
+	});
+};
+
 Processor.prototype.startThread = function() {
 	console.log('Processor> Starting thread...');
 	var options = this.options;
@@ -154,11 +185,7 @@ Processor.prototype.startThread = function() {
 	this.pings[options.threadId] = new Date().getTime();
 
 	// set up pinging
-	setInterval(function() {
-		if (childProcess.connected === true) {
-			childProcess.send(JSON.stringify({ type: 'ping' }));
-		}
-	}, options.pingInterval);
+	this.setupPinging(childProcess, options.threadId);
 
 	// set up stat handling
 	childProcess.on('message', function (message) {
@@ -168,11 +195,7 @@ Processor.prototype.startThread = function() {
 	});
 
 	// set up respawn
-	childProcess.on('exit', function (code, signal) {
-		console.log('Processor> Child process terminated due to receipt of signal '+ signal + ', respawning...');
-		processor.threads.push(processor.startThread());
-		processor.flush();
-	});
+	this.setupThreadRespawn(childProcess, options.threadId);
 
 	return childProcess;
 };
