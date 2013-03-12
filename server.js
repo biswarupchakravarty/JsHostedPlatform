@@ -47,7 +47,12 @@ require('http').createServer(function (request, response) {
 	response.statusCode = '200';
 	if (keyword.length == 1) keyword = keyword[0]; else keyword = 'stats';
 	switch (keyword) {
-		default: response.write(JSON.stringify(engine.getStats()));
+		case 'logs':
+			response.write(JSON.stringify(engine.getLogs()));
+			break;
+		case 'stats':
+			response.write(JSON.stringify(engine.getStats()));
+			break;
 	}
 	response.end();
 }).listen(8081);

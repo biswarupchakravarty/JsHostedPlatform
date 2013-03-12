@@ -48,14 +48,29 @@ var Processor = function(options) {
 		}
 	}, this.options.lockTimeout);
 
+	// set up stat polling
+	this.setupStatPolling();
+
+	// set up log polling
+	this.setupLogPolling();
+
+	// Message handlers :
+	// 1. for stat message
 	this.messageProcessor.register('stats', function (message) {
 		this.stats[message.threadId] = message.stats;
 	});
 
+	// 2. for ping-responses from threads
 	this.messageProcessor.register('ping', function (message) {
 		this.pings[message.threadId] = new Date().getTime();
 	});
 
+	// 3. for logs from threads
+	this.messageProcessor.register('logs', function (message) {
+		this.logs[message.threadId] = message.logs;
+	});
+
+	// 4. for successfull message ack from threads
 	this.messageProcessor.register('message-ack', function (message) {
 		this.messageBuffer = this.messageBuffer.filter(function (m) {
 			return m.id != message.messageId;
@@ -64,6 +79,7 @@ var Processor = function(options) {
 		console.log('Processor> Received message-ack for message #' + message.messageId);
 	});
 
+	// 5. for successfull message completion from threads
 	this.messageProcessor.register('message-done', function (message) {
 		this.stats.totalMessagesProcessed += 1;
 	});
@@ -75,6 +91,7 @@ Processor.prototype.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, t
 Processor.prototype.pings = { };
 Processor.prototype.messageBuffer = [];
 Processor.prototype._lastThreadId = 0;
+Processor.prototype.logs = { };
 
 Processor.prototype.process = function(message) {
 	this.stats.waitingForDispatch += 1;
@@ -112,9 +129,87 @@ Processor.prototype.enqueue = function(message) {
 	this.messageBuffer.splice(0, 0, message);
 };
 
+var statPollingInterval = null;
+Processor.prototype.setupStatPolling = function() {
+	if (statPollingInterval !== null) return;
+	var options = this.options;
+	var that = this;
+
+	statPollingInterval = setInterval(function() {
+		// clear the threads' stats
+		for (var key in that.stats) {
+			if (parseInt(key, 10) == key) {
+				delete that.stats[key];
+			}
+		}
+
+		// request stats from all connected threads
+		that.threads.forEach(function (thread) {
+			if (thread.connected === true) {
+				thread.send(JSON.stringify({ type: 'stats' }));
+			}
+		});
+	}, options.statPollingInterval);
+};
+
+var logPollingInterval = null;
+Processor.prototype.setupLogPolling = function() {
+	if (logPollingInterval !== null) return;
+	var options = this.options;
+	var that = this;
+
+	logPollingInterval = setInterval(function() {
+		// clear the threads' logs
+		for (var key in that.logs) {
+			if (parseInt(key, 10) == key) {
+				delete that.logs[key];
+			}
+		}
+
+		// request stats from all connected threads
+		that.threads.forEach(function (thread) {
+			if (thread.connected === true) {
+				thread.send(JSON.stringify({ type: 'logs' }));
+			}
+		});
+	}, options.logPollingInterval);
+};
+
+var pingIntervalHandlers = { };
+Processor.prototype.setupPinging = function(thread, threadId) {
+	var options = this.options;
+
+	// set up pinging
+	pingIntervalHandlers[threadId] = setInterval(function() {
+		if (thread.connected === true) {
+			thread.send(JSON.stringify({ type: 'ping' }));
+		}
+	}, options.pingInterval);
+};
+
+
+Processor.prototype.setupThreadRespawn = function(thread, threadId) {
+	var that = this;
+	thread.on('exit', function (code, signal) {
+
+		console.log('Processor> Child process terminated due to receipt of signal '+ signal + ', respawning...');
+
+		// Clean up timers
+		// 1. ping 
+		clearInterval(pingIntervalHandlers[threadId]);
+		delete pingIntervalHandlers[threadId];
+
+		// respawn thread 
+		that.threads.push(that.startThread());
+
+		// flush the queue if requests have piled up
+		that.flush();
+	});
+};
+
 Processor.prototype.startThread = function() {
 	console.log('Processor> Starting thread...');
-	var options = this.options;
+	var options = this.options, that = this;
 	options.threadId = this._lastThreadId++;
 	var childProcess = require('child_process').fork('./thread.js', [], {
 		env: {
@@ -124,20 +219,8 @@ Processor.prototype.startThread = function() {
 	childProcess._threadId = options.threadId;
 	this.pings[options.threadId] = new Date().getTime();
 
-	var that = this;
-	// set up stats polling
-	setInterval(function() {
-		if (childProcess.connected === true) {
-			childProcess.send(JSON.stringify({ type: 'stats' }));
-		}
-	}, options.statPollingInterval);
-
 	// set up pinging
-	setInterval(function() {
-		if (childProcess.connected === true) {
-			childProcess.send(JSON.stringify({ type: 'ping' }));
-		}
-	}, options.pingInterval);
+	this.setupPinging(childProcess, options.threadId);
 
 	// set up stat handling
 	childProcess.on('message', function (message) {
@@ -147,17 +230,17 @@ Processor.prototype.startThread = function() {
 	});
 
 	// set up respawn
-	childProcess.on('exit', function (code, signal) {
-		console.log('Processor> Child process terminated due to receipt of signal '+ signal + ', respawning...');
-		that.threads.push(that.startThread());
-		that.flush();
-	});
+	this.setupThreadRespawn(childProcess, options.threadId);
 
 	return childProcess;
 };
 
 Processor.prototype.getStats = function() {
 	return this.stats;
+};
+
+Processor.prototype.getLogs = function() {
+	return this.logs;
 };
 
 Processor.prototype.mock = function() {

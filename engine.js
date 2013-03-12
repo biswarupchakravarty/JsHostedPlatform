@@ -31,4 +31,13 @@ Engine.prototype.getStats = function() {
 	});
 };
 
+Engine.prototype.getLogs = function() {
+	return processorList.map(function (processor) {
+		return {
+			fileName: processor.fileName,
+			logs: processor.processor.getLogs()
+		};
+	});
+};
+
 module.exports = Engine;

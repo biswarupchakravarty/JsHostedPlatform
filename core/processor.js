@@ -51,6 +51,9 @@ var Processor = function(options) {
 	// set up stat polling
 	this.setupStatPolling();
 
+	// set up log polling
+	this.setupLogPolling();
+
 	// Message handlers :
 	// 1. for stat message
 	this.messageProcessor.register('stats', function (message) {
@@ -62,7 +65,12 @@ var Processor = function(options) {
 		this.pings[message.threadId] = new Date().getTime();
 	});
 
-	// 3. for successfull message ack from threads
+	// 3. for logs from threads
+	this.messageProcessor.register('logs', function (message) {
+		this.logs[message.threadId] = message.logs;
+	});
+
+	// 4. for successfull message ack from threads
 	this.messageProcessor.register('message-ack', function (message) {
 		this.messageBuffer = this.messageBuffer.filter(function (m) {
 			return m.id != message.messageId;
@@ -71,7 +79,7 @@ var Processor = function(options) {
 		console.log('Processor> Received message-ack for message #' + message.messageId);
 	});
 
-	// 4. for successfull message completion from threads
+	// 5. for successfull message completion from threads
 	this.messageProcessor.register('message-done', function (message) {
 		this.stats.totalMessagesProcessed += 1;
 	});
@@ -83,6 +91,7 @@ Processor.prototype.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, t
 Processor.prototype.pings = { };
 Processor.prototype.messageBuffer = [];
 Processor.prototype._lastThreadId = 0;
+Processor.prototype.logs = { };
 
 Processor.prototype.process = function(message) {
 	this.stats.waitingForDispatch += 1;
@@ -143,6 +152,29 @@ Processor.prototype.setupStatPolling = function() {
 	}, options.statPollingInterval);
 };
 
+var logPollingInterval = null;
+Processor.prototype.setupLogPolling = function() {
+	if (logPollingInterval !== null) return;
+	var options = this.options;
+	var that = this;
+
+	logPollingInterval = setInterval(function() {
+		// clear the threads' logs
+		for (var key in that.logs) {
+			if (parseInt(key, 10) == key) {
+				delete that.logs[key];
+			}
+		}
+
+		// request stats from all connected threads
+		that.threads.forEach(function (thread) {
+			if (thread.connected === true) {
+				thread.send(JSON.stringify({ type: 'logs' }));
+			}
+		});
+	}, options.logPollingInterval);
+};
+
 var pingIntervalHandlers = { };
 Processor.prototype.setupPinging = function(thread, threadId) {
 	var options = this.options;
@@ -161,7 +193,9 @@ Proc.prototype.setupThreadRespawn = function(thread, threadId) {
 
 		console.log('Processor> Child process terminated due to receipt of signal '+ signal + ', respawning...');
 
-		// clean up first
+		// Clean up timers
+		// 1. ping 
+		clearInterval(pingIntervalHandlers[threadId]);
 		delete pingIntervalHandlers[threadId];
 
 		// respawn thread 
@@ -202,6 +236,10 @@ Processor.prototype.startThread = function() {
 
 Processor.prototype.getStats = function() {
 	return this.stats;
+};
+
+Processor.prototype.getLogs = function() {
+	return this.logs;
 };
 
 Processor.prototype.mock = function() {

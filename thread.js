@@ -34,7 +34,7 @@ Thread.prototype.stats = {
 Thread.prototype.enqueue = function(message) {
 	this.stats.messages.total += 1;
 	console.log('Thread> Thread #' + this.id + ' received message #' + message.id);
-	if (this.ready === true/* && this.stats.messages.executing < this.options.maxMessagesPerThread*/) {
+	if (this.ready === true && this.stats.messages.executing < this.options.maxMessagesPerThread) {
 		this.execute(message);
 	} else {
 		this.queue.splice(0, 0, message);
@@ -77,9 +77,14 @@ var log = function() {
 	}
 };
 
+var logStorage = [];
 var logMessage = function(lvl, msg) {
 	switch (lvl) {
-		default: console.log('Hosted Code> ' + msg);
+		case logLevels.LOG:
+			logStorage.splice(0, 0, msg);
+			console.log(msg);
+			break;
+		default: console.log(msg);
 	}
 };
 
@@ -123,6 +128,14 @@ thread.messageProcessor.register('ping', function(message) {
 	process.send(JSON.stringify({
 		type: 'ping',
 		threadId: this.id
+	}));
+});
+
+thread.messageProcessor.register('logs', function(message) {
+	process.send(JSON.stringify({
+		type: 'logs',
+		threadId: this.id,
+		logs: logStorage
 	}));
 });
 

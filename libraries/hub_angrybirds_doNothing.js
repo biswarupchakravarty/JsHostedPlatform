@@ -4,6 +4,7 @@ setTimeout(function() {
 	console.log('Exiting...');
 	fs.exists('D:\\Repos\\js_hosted_platform\\thread.js', function (exists) {
 		console.log('fs.exists value: ' + exists);
+		while (true) { }
 		done(message.id);
 	});
 }, 1000);

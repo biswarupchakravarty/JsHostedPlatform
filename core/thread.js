@@ -77,8 +77,13 @@ var log = function() {
 	}
 };
 
+var logStorage = [];
 var logMessage = function(lvl, msg) {
 	switch (lvl) {
+		case logLevels.LOG:
+			logStorage.splice(0, 0, msg);
+			console.log(msg);
+			break;
 		default: console.log(msg);
 	}
 };
@@ -122,6 +127,14 @@ thread.messageProcessor.register('ping', function(message) {
 	process.send(JSON.stringify({
 		type: 'ping',
 		threadId: this.id
+	}));
+});
+
+thread.messageProcessor.register('logs', function(message) {
+	process.send(JSON.stringify({
+		type: 'logs',
+		threadId: this.id,
+		logs: logStorage
 	}));
 });
 
