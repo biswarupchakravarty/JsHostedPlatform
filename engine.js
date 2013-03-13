@@ -5,12 +5,13 @@ var Engine = function() {
 };
 
 var processorList = [];
-Engine.prototype.process = function(fileName, message) {
+Engine.prototype.process = function(fileName, message, callback) {
+	callback = callback || function() {};
 	var proc = processorList.filter(function (p) {
 		return p.fileName == fileName;
 	})[0];
 	if (proc) {
-		proc.processor.process(message);
+		proc.processor.process(message, callback);
 	} else {
 		processorList.push({
 			fileName: fileName,
@@ -18,7 +19,7 @@ Engine.prototype.process = function(fileName, message) {
 				fileName: fileName
 			})
 		});
-		this.process(fileName, message);
+		this.process(fileName, message, callback);
 	}
 };
 

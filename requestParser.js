@@ -2,6 +2,8 @@ var dummy = require('./dummyData').dummyData;
 
 exports.parseRequest = function(request) {
 
+	"use strict";
+
 	var parsed = { isValid: false };
 	var body = request.json || {};
 
@@ -22,7 +24,8 @@ exports.parseRequest = function(request) {
 	var account = body.account || dummy.account,
 		deployment = body.deployment || dummy.deployment,
 		authorization = body.authorization || dummy.authorization,
-		id = body.id || parseInt(Math.random() * 1000, 10);
+		id = body.id || require('./guid').GUID(),
+		isAsync = body.isAsync || false;
 
 	// return the final parsed response
 	return {
@@ -32,6 +35,7 @@ exports.parseRequest = function(request) {
 		authorization: authorization,
 		deployment: deployment,
 		handlerName: handlerName,
+		isAsync: isAsync,
 		eventArgs: body.data
 	};
 };

@@ -1,5 +1,6 @@
 var MessageProcessor = require('./messageProcessor.js');
 var defaultOptions = require('./processorDefaults.js');
+var messageCodes = require('./ipcMessageCodes.js');
 
 var Processor = function(options) {
 	options = options || {};
@@ -70,18 +71,30 @@ var Processor = function(options) {
 		this.logs[message.threadId] = message.logs;
 	});
 
-	// 4. for successfull message ack from threads
-	this.messageProcessor.register('message-ack', function (message) {
-		this.messageBuffer = this.messageBuffer.filter(function (m) {
-			return m.id != message.messageId;
-		});
-		this.stats.waitingForDispatch -= 1;
-		console.log('Processor> Received message-ack for message #' + message.messageId);
+	// 6. to respond to requests for messages from threads
+	this.messageProcessor.register(messageCodes.REQUEST_FOR_MESSAGE, function (message) {
+		console.log('Processor> Received request for message, ' + this.messageBuffer.length + ' messages in queue');
+		if (this.messageBuffer.length === 0) return;
+		var thread = this.threads.filter(function (thread) {
+			return thread._threadId == message.threadId;
+		})[0];
+		var messageToSend = this.messageBuffer.pop();
+		thread.send(JSON.stringify(messageToSend));
+		console.log('Processor> Served request for message, ' + this.messageBuffer.length + ' messages in queue');
 	});
 
-	// 5. for successfull message completion from threads
-	this.messageProcessor.register('message-done', function (message) {
+	// 7. to respond to messages from threads signifying completion of execution
+	this.messageProcessor.register(messageCodes.EXECUTION_COMPLETED, function (message) {
+		console.log('Processor> Some thread got done with execution, there are ' + this.messageBuffer.length + ' messages in queue.');
 		this.stats.totalMessagesProcessed += 1;
+		this.executeCallbacks(message.messageId, message.response);
+		if (this.messageBuffer.length === 0) return;
+		console.log('Processor> Gonna give him more work...');
+		var messageToSend = this.messageBuffer.pop();
+		var thread = this.threads.filter(function (thread) {
+			return thread._threadId == message.threadId;
+		})[0];
+		thread.send(JSON.stringify(messageToSend));
 	});
 };
 
@@ -90,43 +103,53 @@ Processor.prototype.threads = [];
 Processor.prototype.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, totalMessagesProcessed: 0 };
 Processor.prototype.pings = { };
 Processor.prototype.messageBuffer = [];
+Processor.prototype.callbacks = {};
 Processor.prototype._lastThreadId = 0;
 Processor.prototype.logs = { };
 
-Processor.prototype.process = function(message) {
+Processor.prototype.process = function(message, callback) {
 	this.stats.waitingForDispatch += 1;
 	this.stats.totalMessagesReceived += 1;
 	this.enqueue(message);
+	this.registerCallback(message.id, callback);
 	this.flush();
 };
 
-var counter = 0;
+// do this async, the request has been processed
+// sending the response isnt super critical
+// and it has to travel up the stack a few layers (in-process though)
+Processor.prototype.executeCallbacks = function(messageId, response) {
+	var that = this;
+	setTimeout(function() {
+		var callback = that.callbacks[messageId];
+		if (!callback) return;
+		callback(response);
+		delete that.callbacks[messageId];
+	}, 0);
+};
+
+// broadcast to all the threads
+// there there are new messages to pick up
 Processor.prototype.flush = function() {
-	var numThreads = this.threads.length;
-	if (numThreads === 0) return;
-	var currentTime = new Date().getTime();
-	this.messageBuffer.forEach(function (message) {
+	this.broadcast({
+		type: messageCodes.NEW_MESSAGE_IN_QUEUE
+	});
+};
 
-		// if message has been dispatched less than
-		// options.messageAckTimeout ago, ignore it
-		if (message._dispatchTime && currentTime - message._dispatchTime < this.options.messageAckTimeout) {
-			return;
-		}
-
-		counter = counter % numThreads;
-		var th = this.threads[counter];
-		counter++;
-		th.send(JSON.stringify(message));
-
-		// timestamp the dispatch time on the message
-		message._dispatchTime = currentTime;
-
-		console.log('Processor> Queued message #' + message.id + ' to thread #' + th._threadId);
-	}, this);
+Processor.prototype.broadcast = function(message) {
+	this.threads.forEach(function (thread) {
+		thread.send(JSON.stringify(message));
+	});
 };
 
 Processor.prototype.enqueue = function(message) {
+	message.type = messageCodes.NEW_MESSAGE_FOR_THREAD;
 	this.messageBuffer.splice(0, 0, message);
+};
+
+Processor.prototype.registerCallback = function(messageId, callback) {
+	if (typeof callback != 'function') return;
+	this.callbacks[messageId] = callback;
 };
 
 var statPollingInterval = null;
@@ -199,7 +222,7 @@ Processor.prototype.setupThreadRespawn = function(thread, threadId) {
 		clearInterval(pingIntervalHandlers[threadId]);
 		delete pingIntervalHandlers[threadId];
 
-		// respawn thread 
+		// respawn thread
 		that.threads.push(that.startThread());
 
 		// flush the queue if requests have piled up

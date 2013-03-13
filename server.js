@@ -59,6 +59,7 @@ require('http').createServer(function (request, response) {
 console.log('Stats server started @ :8081');
 
 var engine = new Engine();
+
 var server = new HttpJSON(function (request, response) {
 
 	// validate the request
@@ -71,15 +72,25 @@ var server = new HttpJSON(function (request, response) {
 		return;
 	}
 
+	// TODO: cleanup
 	getHandler(parsedRequest, function (fileName) {
 		console.log('Dispatching message to engine...');
-		engine.process(fileName, parsedRequest);
+		if (parsedRequest.isAsync === false) {
+			engine.process(fileName, parsedRequest, function (resp) {
+				response.statusCode = '200';
+				parsedRequest.response = resp;
+				response.end(JSON.stringify(parsedRequest, null, 2));
+			});
+		} else {
+			engine.process(fileName, parsedRequest);
+			response.statusCode = '200';
+			response.end(JSON.stringify(parsedRequest, null, 2));
+		}
 	}, function () {
 		console.log('Could not find required handler.');
+		response.statusCode = '404';
+		response.end('Could not find required handler.');
 	});
-
-	response.statusCode = '200';
-	response.end(JSON.stringify(parsedRequest, null, 2));
 
 });
 

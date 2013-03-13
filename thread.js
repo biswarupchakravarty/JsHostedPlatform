@@ -1,5 +1,6 @@
 var vm = require('vm');
 var MessageProcessor = require('./messageProcessor.js');
+var messageCodes = require('./ipcMessageCodes.js');
 
 var Thread = function(options) {
 	var that = this;
@@ -47,17 +48,22 @@ Thread.prototype.execute = function(message) {
 	this.sandbox.message = message;
 	this.stats.messages.executing += 1;
 	timerMap[message.id] = new Date().getTime();
+	this.currentlyExecuting = true;
 	this._script.runInNewContext(this.sandbox);
 };
 
-Thread.prototype.onHandlerCompleted = function(messageId) {
+Thread.prototype.onHandlerCompleted = function(messageId, response) {
 	console.log('Thread #' + this.id + ' done executing');
 	this.stats.messages.executing -= 1;
 	this.stats.messages.completed += 1;
 	this.stats.elapsedTime += (new Date().getTime()) - timerMap[messageId];
+	this.currentlyExecuting = false;
 	delete timerMap[messageId];
 	process.send(JSON.stringify({
-		type: 'message-done'
+		type: messageCodes.EXECUTION_COMPLETED,
+		threadId: this.id,
+		messageId: messageId,
+		response: response
 	}));
 };
 
@@ -93,8 +99,8 @@ Thread.prototype.sandbox = {
 	setTimeout: setTimeout,
 	console: { log: log },
 	fs: require('fs'),
-	done: function(messageId) {
-		thread.onHandlerCompleted.apply(thread, [messageId]);
+	done: function(messageId, response) {
+		thread.onHandlerCompleted.apply(thread, [messageId, response]);
 	}
 };
 
@@ -110,18 +116,24 @@ var thread = new Thread(options);
 
 thread.messageProcessor = new MessageProcessor(thread);
 
-process.on('message', function (message) {
-	message = JSON.parse(message);
-	var handler = thread.messageProcessor.getMessageProcessor(message);
-	handler();
+// when notified that there is a new message 
+// in the queue, ask the processor for a message
+thread.messageProcessor.register(messageCodes.NEW_MESSAGE_IN_QUEUE, function(message) {
+	if (this.currentlyExecuting) return;
+	process.send(JSON.stringify({
+		type: messageCodes.REQUEST_FOR_MESSAGE,
+		threadId: this.id
+	}));
+	console.log('Thread> --- requesting for a message...');
 });
 
-thread.messageProcessor.register('payload', function(message) {
+thread.messageProcessor.register(messageCodes.NEW_MESSAGE_FOR_THREAD, function(message) {
 	this.enqueue(message);
-	process.send(JSON.stringify({
-		messageId: message.id,
-		type: 'message-ack'
-	}));
+	console.log('Thread> Thread #' + this.id + ' received message #' + message.id);
+});
+
+process.on('message', function(message) {
+	thread.messageProcessor.getMessageProcessor(JSON.parse(message))();
 });
 
 thread.messageProcessor.register('ping', function(message) {
