@@ -7,7 +7,16 @@ exports.getHandler = function (parsedRequest, onSuccess, onError) {
 
 	var noHandler = { isValid: false };
 
-	var fullyQualifiedHandlerName = parsedRequest.account.name + '_' + parsedRequest.deployment.name + '_' + parsedRequest.handlerName + '.js';
+	var fullyQualifiedHandlerName;
+	if (parsedRequest.account && parsedRequest.deployment && parsedRequest.handlerName) {
+		fullyQualifiedHandlerName = parsedRequest.account.name + '_' + parsedRequest.deployment.name + '_' + parsedRequest.handlerName + '.js';
+	} else {
+		if (parsedRequest.__pre) {
+			fullyQualifiedHandlerName = 'hub_angrybirds_preRequestHook.js';
+		} else if (parsedRequest.__post) {
+			fullyQualifiedHandlerName = 'hub_angrybirds_preResponseHook.js';
+		}
+	}
 	var host = 'raw.github.com';
 	var path = '/biswarupchakravarty/appacitive_js_libraries/master/libraries/';
 	path += fullyQualifiedHandlerName;

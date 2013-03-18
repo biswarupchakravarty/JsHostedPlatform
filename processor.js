@@ -12,6 +12,18 @@ var Processor = function(options) {
 		this.options[key] = options[key];
 	}
 
+	this.id = this.options.id;
+	console.log('Processor> Starting processor #' + this.id);
+
+	// public members
+	this.threads = [];
+	this.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, totalMessagesProcessed: 0 };
+	this.pings = { };
+	this.messageBuffer = [];
+	this.callbacks = {};
+	this._lastThreadId = 0;
+	this.logs = { };
+
 	// boot up the threads
 	for (var x = 0; x < this.options.numThreads; x += 1) {
 		this.threads.push(this.startThread());
@@ -73,7 +85,7 @@ var Processor = function(options) {
 
 	// 6. to respond to requests for messages from threads
 	this.messageProcessor.register(messageCodes.REQUEST_FOR_MESSAGE, function (message) {
-		console.log('Processor> Received request for message, ' + this.messageBuffer.length + ' messages in queue');
+		console.log('Processor #' + this.id + '> Received request for message from thread #' + message.threadId + ', ' + this.messageBuffer.length + ' messages in queue');
 		if (this.messageBuffer.length === 0) return;
 		var thread = this.threads.filter(function (thread) {
 			return thread._threadId == message.threadId;
@@ -99,13 +111,6 @@ var Processor = function(options) {
 };
 
 Processor.prototype.options = defaultOptions;
-Processor.prototype.threads = [];
-Processor.prototype.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, totalMessagesProcessed: 0 };
-Processor.prototype.pings = { };
-Processor.prototype.messageBuffer = [];
-Processor.prototype.callbacks = {};
-Processor.prototype._lastThreadId = 0;
-Processor.prototype.logs = { };
 
 Processor.prototype.process = function(message, callback) {
 	this.stats.waitingForDispatch += 1;
@@ -231,9 +236,9 @@ Processor.prototype.setupThreadRespawn = function(thread, threadId) {
 };
 
 Processor.prototype.startThread = function() {
-	console.log('Processor> Starting thread...');
 	var options = this.options, that = this;
-	options.threadId = this._lastThreadId++;
+	console.log('Processor> Starting thread (' + options.fileName + ')');
+	options.threadId = this.id + '-' + this._lastThreadId++;
 	var childProcess = require('child_process').fork('./thread.js', [], {
 		env: {
 			options: JSON.stringify(options)

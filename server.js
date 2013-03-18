@@ -7,7 +7,8 @@ var HttpJSON = require('./jsonWebServer'),
 	Sandbox = require('node-sandbox'),
 	fork = require('child_process').fork,
 	getFromGithub = require('./githubDownloader').getFromGithub,
-	Engine = require('./engine.js');
+	Engine = require('./engine.js'),
+	sendHttp = require('./sendHttp.js').sendHttp;
 
 
 if (false) {
@@ -59,6 +60,71 @@ require('http').createServer(function (request, response) {
 console.log('Stats server started @ :8081');
 
 var engine = new Engine();
+
+var proxyServer = new HttpJSON(function (request, response) {
+
+	var payload = request.json, startTime;
+	payload.__pre = true;
+	payload.id = require('./guid').GUID();
+	
+	console.log('Received request: ' + request.initialMethod + ': ' + request.initialUrl);
+
+	for (var header in request.headers) {
+		response.setHeader(header, request.headers[header]);
+	}
+
+	if (request.initialMethod == 'OPTIONS') {
+		response.statusCode = '200';
+		response.end();
+		console.log('Sent response successfully.');
+		return;
+	}
+
+	getHandler(payload, function (fileName) {
+		console.log('Sending to the request hooks...');
+		engine.process(fileName, payload, function (resp) {
+			startTime = new Date().getTime();
+			sendHttp({
+				host: 'apis.appacitive.com',
+				path: request.initialUrl,
+				method: request.initialMethod,
+				data: request.json,
+				headers: {
+					'appacitive-session': request.headers['appacitive-session'],
+					'appacitive-environment': request.headers['appacitive-environment'],
+					'appacitive-user-auth': request.headers['appacitive-user-auth']
+				}
+			}, function (apiResponse) {
+				console.log('Remote response received in ' + (new Date().getTime() - startTime) + 'ms, forwarding.');
+				apiResponse.json.__post = true;
+				apiResponse.json.id = require('./guid').GUID();
+				getHandler(apiResponse.json, function (fileName) {
+					console.log('Now sending for the response hooks...');
+					engine.process(fileName, apiResponse.json, function (ultimateResponse) {
+						for (var header in apiResponse.headers) {
+							if (header.toLowerCase() != 'content-length')
+								response.setHeader(header, apiResponse.headers[header]);
+						}
+						response.setHeader('Content-Length', ultimateResponse.length);
+						response.statusCode = apiResponse.statusCode;
+						response.end(ultimateResponse);
+						console.log('Sent response successfully.');
+					});
+				});
+			}, function (err) {
+				// nothing to do here!
+			});
+		});
+	}, function () {
+		console.log('Could not find required handler.');
+		response.statusCode = '404';
+		response.end('Could not find required handler.');
+		console.log('Sent response successfully.');
+	});
+
+});
+
+proxyServer.listen(8082);
 
 var server = new HttpJSON(function (request, response) {
 

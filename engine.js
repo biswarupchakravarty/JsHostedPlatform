@@ -5,6 +5,8 @@ var Engine = function() {
 };
 
 var processorList = [];
+var processorCount = 0;
+
 Engine.prototype.process = function(fileName, message, callback) {
 	callback = callback || function() {};
 	var proc = processorList.filter(function (p) {
@@ -16,7 +18,8 @@ Engine.prototype.process = function(fileName, message, callback) {
 		processorList.push({
 			fileName: fileName,
 			processor: new Processor({
-				fileName: fileName
+				fileName: fileName,
+				id: processorCount++
 			})
 		});
 		this.process(fileName, message, callback);

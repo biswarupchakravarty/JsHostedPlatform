@@ -6,30 +6,35 @@ var Thread = function(options) {
 	var that = this;
 	that.id = options.threadId;
 
-	require('fs').readFile(options.fileName, function (err, data) {
-		if (err) throw err;
-		that._script = vm.createScript(data, './' + options.fileName + '.vm');
-		console.log('Thread> Thread #' + that.id + ' ready to execute messages.');
-		that.onReady();
-    });
+	require('fs').exists(options.fileName, function (exists) {
+		if (exists) {
+			require('fs').readFile(options.fileName, function (err, data) {
+				if (err) throw err;
+				that._script = vm.createScript(data, './' + options.fileName + '.vm');
+				console.log('Thread> Thread #' + that.id + ' ready to execute messages.');
+				that.onReady();
+			});
+		} else {
+			throw new Error('Could not boot thread for file: ' + options.fileName);
+		}
+	});
 
     // default options
     options.maxMessagesPerThread = options.maxMessagesPerThread || 3;
     that.options = options;
-};
 
-Thread.prototype.queue = [];
-
-Thread.prototype.ready = false;
-
-Thread.prototype.stats = {
-	messages: {
-		total: 0,
-		executing: 0,
-		queued: 0,
-		completed: 0
-	},
-	elapsedTime: 0
+    // public members
+    this.queue = [];
+    this.ready = false;
+    this.stats = {
+		messages: {
+			total: 0,
+			executing: 0,
+			queued: 0,
+			completed: 0
+		},
+		elapsedTime: 0
+	};
 };
 
 Thread.prototype.enqueue = function(message) {
@@ -49,11 +54,12 @@ Thread.prototype.execute = function(message) {
 	this.stats.messages.executing += 1;
 	timerMap[message.id] = new Date().getTime();
 	this.currentlyExecuting = true;
+	console.log('Thread #' + this.id + '> Executing client code...');
 	this._script.runInNewContext(this.sandbox);
 };
 
 Thread.prototype.onHandlerCompleted = function(messageId, response) {
-	console.log('Thread #' + this.id + ' done executing');
+	console.log('Thread #' + this.id + '> Done executing');
 	this.stats.messages.executing -= 1;
 	this.stats.messages.completed += 1;
 	this.stats.elapsedTime += (new Date().getTime()) - timerMap[messageId];
@@ -63,7 +69,7 @@ Thread.prototype.onHandlerCompleted = function(messageId, response) {
 		type: messageCodes.EXECUTION_COMPLETED,
 		threadId: this.id,
 		messageId: messageId,
-		response: response
+		response: JSON.stringify(response)
 	}));
 };
 
@@ -97,7 +103,7 @@ var logMessage = function(lvl, msg) {
 Thread.prototype.sandbox = {
 	Appacitive: { key: 'value' },
 	setTimeout: setTimeout,
-	console: { log: log },
+	console: { log: log, dir: console.dir },
 	fs: require('fs'),
 	done: function(messageId, response) {
 		thread.onHandlerCompleted.apply(thread, [messageId, response]);
@@ -124,12 +130,11 @@ thread.messageProcessor.register(messageCodes.NEW_MESSAGE_IN_QUEUE, function(mes
 		type: messageCodes.REQUEST_FOR_MESSAGE,
 		threadId: this.id
 	}));
-	console.log('Thread> --- requesting for a message...');
+	console.log('Thread #' + this.id + '> Looking for work...');
 });
 
 thread.messageProcessor.register(messageCodes.NEW_MESSAGE_FOR_THREAD, function(message) {
 	this.enqueue(message);
-	console.log('Thread> Thread #' + this.id + ' received message #' + message.id);
 });
 
 process.on('message', function(message) {
@@ -158,5 +163,3 @@ thread.messageProcessor.register('stats', function() {
 		stats: this.stats
 	}));
 });
-
-// thread monitoring
