@@ -66,7 +66,7 @@ var proxyServer = new HttpJSON(function (request, response) {
 	var payload = request.json, startTime;
 	payload.__pre = true;
 	payload.id = require('./guid').GUID();
-	
+
 	console.log('Received request: ' + request.initialMethod + ': ' + request.initialUrl);
 
 	for (var header in request.headers) {
