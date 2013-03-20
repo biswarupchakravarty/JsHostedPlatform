@@ -224,11 +224,19 @@ Processor.prototype.setupThreadRespawn = function(thread, threadId) {
 		clearInterval(pingIntervalHandlers[threadId]);
 		delete pingIntervalHandlers[threadId];
 
-		// respawn thread
+		// 2. respawn thread
 		that.threads.push(that.startThread());
 
-		// flush the queue if requests have piled up
+		// 3. flush the queue if requests have piled up
 		that.flush();
+
+		// 4. update the statistics
+		try {
+			that.stats.threads[threadId].alive = false;
+			that.stats.threads[threadId].endTime = new Date().getTime();
+		} catch (e) {
+			// remove the try block
+		}
 	});
 };
 

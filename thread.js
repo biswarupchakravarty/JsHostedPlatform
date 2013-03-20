@@ -33,7 +33,8 @@ var Thread = function(options) {
 			queued: 0,
 			completed: 0
 		},
-		elapsedTime: 0
+		elapsedTime: 0,
+		startTime: new Date().getTime()
 	};
 };
 
