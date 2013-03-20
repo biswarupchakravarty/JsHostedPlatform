@@ -125,12 +125,13 @@ thread.messageProcessor = new MessageProcessor(thread);
 // when notified that there is a new message 
 // in the queue, ask the processor for a message
 thread.messageProcessor.register(messageCodes.NEW_MESSAGE_IN_QUEUE, function(message) {
+	console.log('Thread #' + this.id + '> Got notification of new work item.');
 	if (this.currentlyExecuting) return;
+	console.log('Thread #' + this.id + '> Requesting work from processor.');
 	process.send(JSON.stringify({
 		type: messageCodes.REQUEST_FOR_MESSAGE,
 		threadId: this.id
 	}));
-	console.log('Thread #' + this.id + '> Looking for work...');
 });
 
 thread.messageProcessor.register(messageCodes.NEW_MESSAGE_FOR_THREAD, function(message) {

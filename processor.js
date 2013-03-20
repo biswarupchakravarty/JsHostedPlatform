@@ -17,7 +17,7 @@ var Processor = function(options) {
 
 	// public members
 	this.threads = [];
-	this.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, totalMessagesProcessed: 0 };
+	this.stats = { waitingForDispatch: 0, totalMessagesReceived: 0, totalMessagesProcessed: 0, threads: { } };
 	this.pings = { };
 	this.messageBuffer = [];
 	this.callbacks = {};
@@ -70,7 +70,7 @@ var Processor = function(options) {
 	// Message handlers :
 	// 1. for stat message
 	this.messageProcessor.register('stats', function (message) {
-		this.stats[message.threadId] = message.stats;
+		this.stats.threads[message.threadId] = message.stats;
 	});
 
 	// 2. for ping-responses from threads
@@ -118,6 +118,7 @@ Processor.prototype.process = function(message, callback) {
 	this.enqueue(message);
 	this.registerCallback(message.id, callback);
 	this.flush();
+	console.log('Processor #' + this.id + '> New work available.');
 };
 
 // do this async, the request has been processed
@@ -165,11 +166,7 @@ Processor.prototype.setupStatPolling = function() {
 
 	statPollingInterval = setInterval(function() {
 		// clear the threads' stats
-		for (var key in that.stats) {
-			if (parseInt(key, 10) == key) {
-				delete that.stats[key];
-			}
-		}
+		that.stats.threads = { };
 
 		// request stats from all connected threads
 		that.threads.forEach(function (thread) {
